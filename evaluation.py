@@ -11,7 +11,7 @@ from langchain.document_transformers import (
 import time
 from langchain.prompts import PromptTemplate
 import csv
-csv_file = 'questionDataset.csv'
+csv_file = 'questionDatasetBetter.csv'
 DB_FAISS_PATH = '.'
 DEVICE = 'mps'
 import uuid
@@ -32,8 +32,8 @@ parameters = {'chunk_size':1000,
         'gpu_layers':20
         }
 '''
-parameters=  {'model_name':'llama-2-13b-chat.Q4_K_M.gguf',#'openchat_3.5.Q4_K_M.gguf',#'starling-lm-7b-alpha.Q4_K_M.gguf',
- 'model_type':'llama',
+parameters=  {'model_name':'openchat_3.5.Q4_K_M.gguf',#'starling-lm-7b-alpha.Q4_K_M.gguf',#'llama-2-13b-chat.Q4_K_M.gguf',#'openchat_3.5.Q4_K_M.gguf',#'starling-lm-7b-alpha.Q4_K_M.gguf',
+ 'model_type':'mistral',
  'method_preprocessing':'PaddleOCR',
  'embedding_model':'BAAI/bge-large-en-v1.5',
  'chunk_technique':'RecursiveTextSplitter',
@@ -50,7 +50,8 @@ parameters=  {'model_name':'llama-2-13b-chat.Q4_K_M.gguf',#'openchat_3.5.Q4_K_M.
  'device':'MPS',
  'rate':0,
  'rate_table':0,
- 'rate_text':0}
+ 'rate_text':0,
+ 'time':0}
 # Define a dictionary to map file extensions to their respective loaders
 loaders = {
     '.csv': CSVLoader,
@@ -138,7 +139,7 @@ def result(parameters,chunks,embeddings,query):
     promptStr = """GPT4 User: Use the following pieces of context to answer the question at the end.  If you don't know the answer, just say that you don't know, don't try to make up an answer. {context} Please answer the following question: {query}<|end_of_turn|>GPT4 Assistant:"""
 
     prompt = PromptTemplate(
-        template=template, input_variables=["context", "query"]
+        template=promptStr, input_variables=["context", "query"]
     )
 
 
@@ -152,12 +153,14 @@ def result(parameters,chunks,embeddings,query):
         document_prompt=document_prompt,
         document_variable_name=document_variable_name,
     )
-    
+    start = time.time()
     response = chain.run(input_documents=reordered_docs, query=query)
-    return response
+    end = time.time()
+    time_spending = end - start
+    return response,time_spending
 
 def create_parameters_file(parameters,model_name,id):
-    with open('./results/parameter'+model_name+str(id)+'.csv', 'w') as csv_file:
+    with open('./parameters/parameter'+model_name+str(id)+'.csv', 'w') as csv_file:
         writer = csv.writer(csv_file)
         writer.writerow([key for key, value in parameters.items()])
         writer.writerow([value for key, value in parameters.items()])
@@ -165,20 +168,22 @@ def create_parameters_file(parameters,model_name,id):
         
 def evaluate(csv_file,model_name,parameters):
     chunks,embeddings = load(parameters)
+    uniqueID = uuid.uuid4()
+    time_spending_total = 0
     with open(csv_file) as csv_file:
         csv_reader = csv.reader(csv_file, delimiter=';')
         line_count = 0
-        with open('./results/'+model_name+'.csv', mode='w') as result_file:
+        with open('./results/'+model_name+str(uniqueID)+'.csv', mode='w') as result_file:
             result_writer = csv.writer(result_file, delimiter=';', quotechar='"', quoting=csv.QUOTE_MINIMAL)
             result_writer.writerow(['Question', 'ResultLLM', 'Baseline'])
             
             for row1,row2 in csv_reader:
                 print('row : ', str(row1))
-                response = result(parameters,chunks,embeddings,row1)
+                response,time_spending = result(parameters,chunks,embeddings,row1)
                 result_writer.writerow([row1,response,row2])
-    create_parameters_file(parameters,model_name,uuid.uuid4())
+                time_spending_total = time_spending_total + time_spending
+    parameters['time']=time_spending_total
+    create_parameters_file(parameters,model_name,uniqueID)
 
-start = time.time()
+
 evaluate(csv_file,parameters['model_name'],parameters)
-end = time.time()
-print(end - start)
